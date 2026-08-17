@@ -1,95 +1,74 @@
 """
-Step 1 — Raw ingestion of solar & lunar eclipse catalog data
-What this script does:
-- Fetches a set of catalog pages (one per century/date-range, per eclipse type)
-- Parses the HTML table on each page into a pandas DataFrame
-- Saves each DataFrame as is (no cleaning) into raw/<type>_<range>.csv
-- Logs what was pulled into raw/manifest.csv
-
-Requirements:
-    pip install requests beautifulsoup4 pandas lxml
+Step 1 Raw ingestion of solar eclipse catalog data from eclipse.gsfc.nasa.gov.
+This script: 
+- fetches each catalog page
+- finds all <pre> blocks and extracts their plain text (link text only, via BeautifulSoup's get_text, which strips the <a> tags but keeps the visible numbers/labels)
+- Parses each data line with a regex tailored to the known column layout, tolerant of the optional trailing "path width" and "central duration" fields (only present for total/annular/hybrid eclipses with a defined path)
+- Saves the parsed rows AS-IS (raw types, no further cleaning) into raw/<type>_<range>.csv
+- Logs into raw/manifest.csv
 """
 import os
-import time
+import re
 import csv
+import time
 from datetime import datetime, timezone
 import requests
-import pandas as pd
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-import os
 
 ### CONFIG
-RAW_DIR = "raw"
-MANIFEST_PATH = os.path.join(RAW_DIR, "manifest.csv")
-
 load_dotenv()
 
+RAW_DIR = os.path.join("data", "raw")
+MANIFEST_PATH = os.path.join(RAW_DIR, "manifest.csv")
+
 HEADERS = {
-    "User-Agent": f"eclipse-data-project/0.1 (personal portfolio project; contact: {os.environ['CONTACT_EMAIL']})"
+    "User-Agent": f"eclipse-data-project/0.1 (personal portfolio project; "
+                  f"contact: {os.environ.get('CONTACT_EMAIL', 'unknown@example.com')})"
 }
 
-SOURCES = [
-    {
-        "type": "solar",
-        "label": "2001_2100",
-        "url": "https://eclipse.gsfc.nasa.gov/SEcat5/SE2001-2100.html",
-    },
-    {
-        "type": "solar",
-        "label": "1901_2000",
-        "url": "https://eclipse.gsfc.nasa.gov/SEcat5/SE1901-2000.html",
-    },
-    {
-        "type": "lunar",
-        "label": "2001_2100",
-        "url": "https://eclipse.gsfc.nasa.gov/LEcat5/LE2001-2100.html",
-    },
-    {
-        "type": "lunar",
-        "label": "1901_2000",
-        "url": "https://eclipse.gsfc.nasa.gov/LEcat5/LE1901-2000.html",
-    },
+SOLAR_SOURCES = [
+    {"label": "1901_2000", "url": "https://eclipse.gsfc.nasa.gov/SEcat5/SE1901-2000.html"},
+    {"label": "2001_2100", "url": "https://eclipse.gsfc.nasa.gov/SEcat5/SE2001-2100.html"},
 ]
+
+SOLAR_COLUMNS = [
+    "catalog_number", "year", "month", "day", "td_greatest_eclipse",
+    "delta_t_s", "luna_num", "saros_num", "eclipse_type", "qle",
+    "gamma", "magnitude", "lat", "long", "sun_alt",
+    "path_width_km", "central_duration",
+]
+
+SOLAR_ROW_PATTERN = re.compile(
+    r'^(\d+)\s+(-?\d+)\s+(\S+)\s+(\d+)\s+(\d{1,2}:\d{2}:\d{2})\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+    r'(\S+)\s+(\S+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(\d+[NS])\s+(\d+[EW])\s+(\d+)'
+    r'(?:\s+(\S+)\s+(\d+m\d+s))?\s*$'
+)
 
 ### HELPERS FUNCTIONS
 def fetch_html(url: str) -> str:
-    """Download raw HTML for a single catalog page."""
     response = requests.get(url, headers=HEADERS, timeout=30)
     response.raise_for_status()
     return response.text
 
-def extract_table(html: str) -> pd.DataFrame:
+def parse_solar_catalog(html: str) -> list[list[str]]:
     """
-    Try the easy path first (pandas.read_html) then fall back to manual beautifulsoup parsing if the page's table is too irregular for pandas to detect cleanly (merged cells, footnote markers, etc)
+    Extract data rows from every <pre> block on a solar eclipse catalog page
+    Returns a list of field-lists (raw strings, unparsed/untyped)
     """
-    try:
-        tables = pd.read_html(html)
-        if tables:
-            return max(tables, key=lambda df: df.shape[0])
-    except ValueError:
-        pass  #pandas found no parsable tables - fall back below
-
-    #MANUAL FALLBACK 
-    soup = BeautifulSoup(html, "lxml")
-    table = soup.find("table")
-    if table is None:
-        raise RuntimeError("No <table> found on page — inspect HTML manually")
-
+    soup = BeautifulSoup(html, "html.parser")
     rows = []
-    for tr in table.find_all("tr"):
-        cells = [c.get_text(strip=True) for c in tr.find_all(["td", "th"])]
-        if cells:
-            rows.append(cells)
 
-    if not rows:
-        raise RuntimeError("Table found but no rows extracted — inspect HTML manually")
+    for pre in soup.find_all("pre"):
+        text = pre.get_text()
+        for line in text.splitlines():
+            match = SOLAR_ROW_PATTERN.match(line.strip())
+            if match:
+                rows.append(list(match.groups()))
 
-    header, *data_rows = rows
-    return pd.DataFrame(data_rows, columns=header)
+    return rows
 
 def append_manifest_row(row: dict) -> None:
-    """Append one entry to the manifest log, creating the file with a header if needed"""
     file_exists = os.path.isfile(MANIFEST_PATH)
     with open(MANIFEST_PATH, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=row.keys())
@@ -97,39 +76,48 @@ def append_manifest_row(row: dict) -> None:
             writer.writeheader()
         writer.writerow(row)
 
-### MAIN 
+def save_rows(rows: list[list[str]], columns: list[str], out_path: str) -> None:
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        writer.writerow(columns)
+        writer.writerows(rows)
+
+### MAIN
 def main():
     os.makedirs(RAW_DIR, exist_ok=True)
 
-    for source in SOURCES:
-        eclipse_type = source["type"]
+    for source in SOLAR_SOURCES:
         label = source["label"]
         url = source["url"]
-        out_filename = f"{eclipse_type}_{label}.csv"
+        out_filename = f"solar_{label}.csv"
         out_path = os.path.join(RAW_DIR, out_filename)
 
-        print(f"Fetching {eclipse_type} eclipses ({label}) from {url} ...")
+        print(f"Fetching solar eclipses ({label}) from {url} ...")
 
         try:
             html = fetch_html(url)
-            df = extract_table(html)
-            df.to_csv(out_path, index=False)
+            rows = parse_solar_catalog(html)
+
+            if not rows:
+                raise RuntimeError(
+                    "0 rows matched - the page structure may differ from what was inspected."
+                )
+            save_rows(rows, SOLAR_COLUMNS, out_path)
 
             append_manifest_row({
-                "eclipse_type": eclipse_type,
+                "eclipse_type": "solar",
                 "date_range_label": label,
                 "source_url": url,
-                "rows_extracted": len(df),
+                "rows_extracted": len(rows),
                 "output_file": out_filename,
                 "pulled_at_utc": datetime.now(timezone.utc).isoformat(),
                 "status": "ok",
             })
-            print(f"  -> saved {len(df)} rows to {out_path}")
+            print(f"-> saved {len(rows)} rows to {out_path}")
 
         except Exception as exc:
-            # Log failures too, rather than silently skipping
             append_manifest_row({
-                "eclipse_type": eclipse_type,
+                "eclipse_type": "solar",
                 "date_range_label": label,
                 "source_url": url,
                 "rows_extracted": 0,
@@ -137,9 +125,9 @@ def main():
                 "pulled_at_utc": datetime.now(timezone.utc).isoformat(),
                 "status": f"error: {exc}",
             })
-            print(f"  -> FAILED: {exc}")
+            print(f"-> FAILED: {exc}")
 
-        time.sleep(2) 
+        time.sleep(2) #polite delay between requests
 
     print(f"\nDone. Manifest written to {MANIFEST_PATH}")
 
