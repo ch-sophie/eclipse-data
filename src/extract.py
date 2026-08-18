@@ -2,7 +2,7 @@
 Step 1 Raw ingestion of solar eclipse catalog data from eclipse.gsfc.nasa.gov.
 This script: 
 - fetches each catalog page
-- finds all <pre> blocks and extracts their plain text (link text only, via BeautifulSoup's get_text, which strips the <a> tags but keeps the visible numbers/labels)
+- finds all <pre> blocks and extracts their plain text (link text only, via BeautifulSoup get_text, which strips the <a> tags but keeps the visible numbers/labels)
 - Parses each data line with a regex tailored to the known column layout, tolerant of the optional trailing "path width" and "central duration" fields (only present for total/annular/hybrid eclipses with a defined path)
 - Saves the parsed rows AS-IS (raw types, no further cleaning) into raw/<type>_<range>.csv
 - Logs into raw/manifest.csv
@@ -40,7 +40,7 @@ SOLAR_COLUMNS = [
 ]
 
 SOLAR_ROW_PATTERN = re.compile(
-    r'^(\d+)\s+(-?\d+)\s+(\S+)\s+(\d+)\s+(\d{1,2}:\d{2}:\d{2})\s+(\d+)\s+(\d+)\s+(\d+)\s+'
+    r'^(\d+)\s+(-?\d+)\s+(\S+)\s+(\d+)\s+(\d{1,2}:\d{2}:\d{2})\s+(-?\d+)\s+(-?\d+)\s+(\d+)\s+'
     r'(\S+)\s+(\S+)\s+(-?\d+\.\d+)\s+(-?\d+\.\d+)\s+(\d+[NS])\s+(\d+[EW])\s+(\d+)'
     r'(?:\s+(\S+)\s+(\d+m\d+s))?\s*$'
 )
