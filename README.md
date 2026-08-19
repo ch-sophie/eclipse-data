@@ -2,6 +2,8 @@
 
 A data engineering project that scrapes, cleans and stores NASA's historical solar eclipse catalog, then presents it through an interactive Streamlit dashboard, with maps, timelines and Saros cycle exploration.
 
+The app is deployed here: *[Solar Eclipse Explorer](https://eclipse-data.onrender.com)*
+
 ### Data source & attribution
 Data comes from NASA/GSFC's Five Millennium Catalog of Solar Eclipses (-1999 to +3000), compiled by Fred Espenak and Jean Meeus, hosted at [eclipse.gsfc.nasa.gov](https://eclipse.gsfc.nasa.gov/eclipse.html)
 
