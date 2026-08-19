@@ -9,13 +9,13 @@ Data comes from NASA/GSFC's Five Millennium Catalog of Solar Eclipses (-1999 to 
 
 Permission is freely granted to reproduce this data when accompanied by the above acknowledgment, which is why it's reproduced here.
 
-Currently covers **solar eclipses from 1901–2100** (two catalog pages). Lunar eclipses and full eclipse-path data are documented as future extensions below — not yet implemented.
+Currently covers **solar eclipses from 1901–2100** (two catalog pages). Lunar eclipses and full eclipse-path data are documented as future extensions below.
 
 ### Architecture
 This dataset is static, historical, and small (a few hundred rows). The project uses a simple **raw → clean → processed** convention:
-- **raw/** — scraped data, untouched, exactly as pulled from the source
-- **clean/** — typed, standardized, deduplicated
-- **processed/** — a queryable SQLite database, ready for the app to read
+- **raw/** - scraped data, untouched, exactly as pulled from the source
+- **clean/** - typed, standardized, deduplicated
+- **db/** - a queryable SQLite database, ready for the app to read
 
 ### Pipeline
 | Step | Script | What it does |
@@ -28,10 +28,8 @@ This dataset is static, historical, and small (a few hundred rows). The project 
 ### A few real data-quality issues hit along the way
 - NASA's catalog data lives in `<pre>` blocks, not HTML `<table>` tags, required a custom regex parser rather than `pandas.read_html()`
 - ΔT and Luna Num are **negative** for dates before their respective reference epochs (early 1900s) - only allowed positive integers here, silently dropping most of the 1901–2000 catalog until caught by comparing row counts across files
-- Eclipse type codes include compound suffixes (`An`, `H3`, `Pb`, etc.) beyond the four base types — rather than guess at undocumented suffix meanings, the base type (confidently known) and raw suffix (kept as-is for later lookup) are stored separately
-- The greatest-eclipse point is a single coordinate, often over open
-  ocean: reverse geocoding always returns *something* nearby regardless
-  of distance
+- Eclipse type codes include compound suffixes (`An`, `H3`, `Pb`, etc.) beyond the four base types - rather than guess at undocumented suffix meanings, the base type (confidently known) and raw suffix (kept as-is for later lookup) are stored separately
+- The greatest-eclipse point is a single coordinate, often over open ocean: reverse geocoding always returns *something* nearby regardless of distance
 
 ### Database schema (`solar_eclipses` table)
 | Column | Type | Notes |
@@ -66,7 +64,7 @@ streamlit run app/app.py
 #### Known limitations / future work
 - **Lunar eclipses** not yet implemented (different catalog page layout, needs its own parser)
 - **Only the greatest-eclipse point is shown**, not the full shadow path. NASA publishes per-eclipse path tables (northern/southern limit + center line) at a separate URL per eclipse (a planned Step 1b, not yet built) requiring one HTTP request per central eclipse rather than per century
-- **Country/continent are approximate**, based on nearest populated place to a single point — not a full path-crossing analysis
+- **Country/continent are approximate**, based on nearest populated place to a single point - not a full path-crossing analysis
 - Currently covers 1901–2100; earlier/later centuries follow the same URL pattern and could be added by extending `SOLAR_SOURCES`
 
 #### Tools used
