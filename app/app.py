@@ -5,6 +5,7 @@ Reads directly from eclipses.db
 import os
 import sqlite3
 import pandas as pd
+from datetime import date
 import streamlit as st
 import pydeck as pdk
 import plotly.express as px
@@ -24,6 +25,8 @@ MONTH_NUM = {
     "May": "05", "Jun": "06", "Jul": "07", "Aug": "08",
     "Sep": "09", "Oct": "10", "Nov": "11", "Dec": "12",
 }
+
+NUM_MONTH = {v: k for k, v in MONTH_NUM.items()}
 
 def build_nasa_link(row) -> str | None:
     """
@@ -132,8 +135,8 @@ col3.metric("Annular", int((filtered["eclipse_type_clean"] == "Annular").sum()))
 col4.metric("Hybrid", int((filtered["eclipse_type_clean"] == "Hybrid").sum()))
 
 ### TABS
-tab_map, tab_timeline, tab_saros, tab_table, tab_about = st.tabs(
-    ["🗺️ Map", "📈 Timeline", "🔄 Saros Explorer", "📋 Data Table", "📖 Eclipse path"]
+tab_map, tab_timeline, tab_saros, tab_discover, tab_table, tab_about = st.tabs(
+    ["🗺️ Map", "📈 Timeline", "🔄 Saros Explorer", "🔎 Discover", "📋 Data Table", "📖 Eclipse path"]
 )
 
 ### MAP TAB
@@ -320,6 +323,69 @@ st.caption(
     "Country/continent (when shown) are approximate, based on the nearest "
     "populated place to the point of greatest eclipse, not the full path."
 )
+
+# --- DISCOVER TAB ---
+with tab_discover:
+    st.subheader("🌗 On this day")
+    st.caption(
+        "Solar eclipses that occurred on today's calendar date, in any year in the dataset. Uses month/day only - not tied to the year filter above."
+    )
+    today = date.today()
+    today_month_abbr = NUM_MONTH.get(f"{today.month:02d}")
+    on_this_day = df[(df["month"] == today_month_abbr) & (df["day"] == today.day)]
+
+    if on_this_day.empty:
+        st.info(f"No recorded solar eclipses on {today.strftime('%B %d')} "
+                 f"in this dataset's date range.")
+    else:
+        st.write(f"**{len(on_this_day)}** eclipse(s) on {today.strftime('%B %d')} "
+                 f"across the years in this dataset:")
+        display = on_this_day[["catalog_number", "astronomical_year", "month", "day",
+                                "eclipse_type_clean", "magnitude"]].copy()
+        display["NASA link"] = on_this_day.apply(build_nasa_link, axis=1)
+        st.dataframe(
+            display.sort_values("astronomical_year"),
+            use_container_width=True, hide_index=True,
+            column_config={
+                "NASA link": st.column_config.LinkColumn("NASA link", display_text="View →"),
+            },
+        )
+    st.divider()
+    st.subheader("🎂 Eclipse near your birth year")
+    st.caption(
+        "Find the solar eclipse(s) closest to a given year"
+    )
+
+    birth_year = st.number_input(
+        "Enter a year", min_value=int(df["astronomical_year"].min()),
+        max_value=int(df["astronomical_year"].max()), value=2000, step=1,
+    )
+
+    exact_match = df[df["astronomical_year"] == birth_year]
+
+    if not exact_match.empty:
+        st.write(f"**{len(exact_match)}** eclipse(s) occurred in **{birth_year}**:")
+        nearest = exact_match
+    else:
+        working = df.copy()
+        working["year_diff"] = (working["astronomical_year"] - birth_year).abs()
+        closest_diff = working["year_diff"].min()
+        nearest = working[working["year_diff"] == closest_diff]
+        st.write(
+            f"No eclipse in exactly **{birth_year}** - here is the closest "
+            f"(**{int(closest_diff)}** year(s) away):"
+        )
+
+    nearest_display = nearest[["catalog_number", "astronomical_year", "month", "day",
+                                "eclipse_type_clean", "magnitude"]].copy()
+    nearest_display["NASA link"] = nearest.apply(build_nasa_link, axis=1)
+    st.dataframe(
+        nearest_display.sort_values("astronomical_year"),
+        use_container_width=True, hide_index=True,
+        column_config={
+            "NASA link": st.column_config.LinkColumn("NASA link", display_text="View →"),
+        },
+    )
 
 ### ABOUT TAB
 with tab_about:
